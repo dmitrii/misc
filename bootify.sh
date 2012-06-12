@@ -22,11 +22,12 @@ echo found grub $grub_ver
  
 # prepare the disk and its partitions and mount them on loopback devices
 disk=disk.img
-disk_map_id=hda
-disk_nod_id=hda
+disk_map_id=disk-id-with-a-long-name
+disk_nod_id=$disk_map_id
+mnt=`pwd`/mount-point-with-a-long-name
 fs_type=ext3
 offset_sectors=63
-disk_size_sectors=40960
+disk_size_sectors=81920
 echo creating disk and root partition in $disk
 dd if=/dev/zero of=$disk bs=512 count=$disk_size_sectors
 
@@ -48,9 +49,14 @@ diff $disk_loop_dev $disk_map_dev
 parted --script $disk_map_dev mklabel msdos
 parted --script $disk_map_dev mkpart primary $fs_type ${offset_sectors}s 100%
 root_map_dev=${disk_map_dev}p1
+root_map_id=${disk_map_id}p1
 if [ ! -e "$root_map_dev" ] ; then
-    echo "cannot find $root_map_dev"
-    exit 1;
+    root_map_dev=${disk_map_dev}1
+    root_map_id=${disk_map_id}1
+    if [ ! -e "$root_map_dev" ] ; then
+	echo "cannot find $root_map_dev or ...p1"
+	exit 1;
+    fi
 fi
 
 function domknod {
@@ -62,8 +68,8 @@ function domknod {
     mknod $nod b $maj $min
 }
 
-function unused {
-    # (UNUSED) loop device for access to root
+function UNUSED_loop_root {
+    # loop device for access to root
     root_loop_dev=`losetup -f`
     losetup -o $((${offset_sectors}*512)) $root_loop_dev $disk
     
@@ -79,51 +85,56 @@ function unused {
 
 echo creating file system on root partition at $root_map_dev
 mkfs.$fs_type $root_map_dev
-mkdir mnt
-mount $root_map_dev mnt
-mkdir -p mnt/boot/grub
-umount mnt
+mkdir -p $mnt
+mount $root_map_dev $mnt
+mkdir -p $mnt/boot/grub
+umount $mnt
 sync
 
-DISK_MAP=`dmsetup table ${disk_map_id}`
-ROOT_MAP=`dmsetup table ${disk_map_id}p1`
-dmsetup remove ${disk_map_id}p1
-dmsetup remove ${disk_map_id}
-echo "$DISK_MAP" | dmsetup create ${disk_map_id}
-echo "$ROOT_MAP" | dmsetup create ${disk_map_id}1
-root_map_dev=${disk_map_dev}1
+function UNUSED_refresh_dmsetup {
+    echo refreshing dmsetup entries
+    DISK_MAP=`dmsetup table ${disk_map_id}`
+    ROOT_MAP=`dmsetup table ${root_map_id}`
+    dmsetup remove ${root_map_id}
+    echo "removed ${root_map_id} with map [$ROOT_MAP]"
+    dmsetup remove ${disk_map_id}
+    echo "removed ${disk_map_id} with map [$DISK_MAP]"
+    echo "$DISK_MAP" | dmsetup create ${disk_map_id}
+    echo "$ROOT_MAP" | dmsetup create ${disk_map_id}1
+    root_map_dev=${disk_map_dev}1
+    root_map_id=${disk_map_id}1
+    echo resting 5 seconds...
+    sleep 5
+}
 
-echo resting...
-sleep 5
-
-mount $root_map_dev mnt
+mount $root_map_dev $mnt
 # run GRUB over the disk and root partition, either version 1 or 2
 if [ $grub_ver == '1' ] ; then
     root_part=0 # 0 works with v1, but 1 works with v2
     echo creating grub 1 config...
-    cfg=mnt/boot/grub/grub.conf
+    cfg=$mnt/boot/grub/grub.conf
     echo "default=0" >$cfg
     echo "timeout=5" >>$cfg
     echo "title TheOS" >>$cfg
     echo "root (hd0,$root_part)" >>$cfg
     echo "kernel /boot/vmlinuz root=/dev/sda1 ro" >>$cfg
     echo "initrd /boot/initrd" >>$cfg
-    cp $cfg mnt/boot/grub/menu.lst # some like grub.conf, some menu.lst
+    cp $cfg $mnt/boot/grub/menu.lst # some like grub.conf, some menu.lst
     cat $cfg
     sync
 
-#    map=mnt/boot/grub/device.map
+#    map=$mnt/boot/grub/device.map
 #    echo "(hd0) $disk_nod_dev" >$map
 #    echo "created device.map:"
 #    cat $map
  
 #    echo copying grub 1 files and installing grub...
-#    echo "grub-install --root-directory=mnt --no-floppy $disk_nod_dev"
-#    grub-install --root-directory=mnt --no-floppy $disk_nod_dev
+#    echo "grub-install --root-directory=$mnt --no-floppy $disk_nod_dev"
+#    grub-install --root-directory=$mnt --no-floppy $disk_nod_dev
 
      echo copying grub 1 stage files...
-#     cp /boot/grub/*stage* mnt/boot/grub
-     cp /usr/lib/grub/x86_64-pc/*stage* mnt/boot/grub
+#     cp /boot/grub/*stage* $mnt/boot/grub
+     cp /usr/lib/grub/x86_64-pc/*stage* $mnt/boot/grub
 
     echo installing grub...
     (echo "device (hd0) $disk_map_dev"
@@ -138,7 +149,7 @@ elif [ $grub_ver == '2' ] ; then
     root_part=msdos1
 
     echo creating grub 2 config...
-    cfg=mnt/boot/grub/grub.cfg
+    cfg=$mnt/boot/grub/grub.cfg
     echo "set default=0" >$cfg
     echo "set timeout=5" >>$cfg
     echo "insmod part_msdos" >>$cfg
@@ -148,22 +159,31 @@ elif [ $grub_ver == '2' ] ; then
     echo "  linux   /boot/vmlinuz ro max_loop=256" >>$cfg
     echo "  initrd  /boot/initrd " >>$cfg
     echo "}" >>$cfg
+
+    map=$mnt/boot/grub/device.map
+    echo "(hd0) $disk_map_dev" >$map
+    echo "created device.map:"
+    cat $map
+
     sync
 
     echo copying grub 2 files and installing grub...
-    grub-install --modules='part_msdos ext2' --root-directory=mnt '(hd0)'
-    # also works on some systems:
-#    grub-install --modules='part_msdos ext2' --root-directory=mnt $disk_loop_dev
+    grub-install --modules='part_msdos ext2' --root-directory=$mnt '(hd0)'
+    # grub-install --modules='part_msdos ext2' --root-directory=$mnt $disk_map_dev
 fi
  
-cp `ls -1 /boot/vmlinuz-* | tail -1` mnt/boot/vmlinuz
-cp `ls -1 /boot/initrd.img-* | tail -1` mnt/boot/initrd
-umount mnt
-rmdir mnt
+cp `ls -1 /boot/vmlinuz-* | tail -1` $mnt/boot/vmlinuz
+cp `ls -1 /boot/initrd.img-* | tail -1` $mnt/boot/initrd
+
+echo "resting 5 seconds before cleanup....";
+sleep 5
+
+umount $mnt
+rmdir $mnt
 ##losetup -d $root_loop_dev
 ##rm $root_nod_dev
 ##rm $disk_nod_dev
-dmsetup remove ${disk_map_id}1
+dmsetup remove ${root_map_id}
 dmsetup remove ${disk_map_id}
 losetup -d $disk_loop_dev
 sync
