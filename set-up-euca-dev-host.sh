@@ -6,7 +6,7 @@ SCRIPT_PATH=$SCRIPT_DIR/$SCRIPT_NAME
 SCRIPT_PATH_REMOTE=/root/$SCRIPT_NAME
 KEY_PATH_REMOTE=/root/euca-dev-key
 HOST=$(hostname)
-unset SSH_AGENT_PID
+unset SSH_AGENT_PID # so that earlier invocations dont' interfere
 
 err ()
 {
@@ -14,7 +14,8 @@ err ()
     exit 1
 }
 
-msg() {  # a colorful status output, with a prefix
+msg() # a colorful status output, with a prefix
+{
     echo
     echo -n $HOST
     echo -ne " \e[1;33m" # turn on color
@@ -23,7 +24,7 @@ msg() {  # a colorful status output, with a prefix
     echo
 }
 
-cleanup ()
+cleanup () # always called when script exits
 {
     if [ "$SSH_AGENT_PID" != "" ] ; then
         msg terminating SSH agent with PID $SSH_AGENT_PID
