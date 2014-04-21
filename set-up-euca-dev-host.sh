@@ -121,6 +121,8 @@ do_scp ()
 
 scp_keys_and_script ()
 {
+    msg "ensuring SSH tools are installed remotely"
+    ssh $SSH_OPTS ${DEST} yum install -y openssh-clients
     msg "copying over SSH keys and the script"
     do_scp ${PRIVATE_KEY_PATH} ${DEST}:${KEY_PATH_REMOTE}
     do_scp ${PUBLIC_KEY_PATH}  ${DEST}:${KEY_PATH_REMOTE}.pub
@@ -228,15 +230,20 @@ ENDBASH
         echo no imaging worker address found
         exit 1
     fi
-    IWKEYNAME=$(euca-describe-instances i-3f039798 | grep INSTANCE | cut -f 7)
+    IWKEYNAME=$(euca-describe-instances $IWVMID | grep INSTANCE | cut -f 7)
     if [ "$IWKEYNAME" == "" ] ; then
         echo no imaging worker key found
         exit 1
     fi
     IWKEYPATH="$HOME/$IWKEYNAME"
-    echo "assuming imaging worker key is in $IWKEYPATH"
-    check_file $IWKEYPATH
-    
+    if [ ! -e $IWKEYPATH ] ; then
+	IWKEYPATH="${IWKEYPATH}.pem"
+	if [ ! -e $IWKEYPATH ] ; then
+	    echo no imaging worker key file found in $IWKEYPATH
+            exit 1
+        fi
+    fi
+ 
     cmd="$SCRIPT_PATH iworker-remote $IWKEYPATH root@$IWADDR"
     echo "executing on $DEST '$cmd'"
     $cmd
