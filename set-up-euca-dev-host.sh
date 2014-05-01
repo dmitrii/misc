@@ -195,6 +195,7 @@ devbox()
 
     echo adding paths to .bash_profile
     cat >>$HOME/.bash_profile <<-'ENDBASH'
+
     if [ -d /usr/lib/axis2/ ] ; then
       export AXIS2C_HOME="/usr/lib/axis2"
     elif [ -d "$EUCALYPTUS/packages/axis2c-1.6.0/" ] ; then
@@ -205,6 +206,16 @@ devbox()
     export LD_LIBRARY_PATH=$AXIS2C_HOME/lib:$AXIS2C_HOME/modules/rampart/
     export PATH=$PATH:$EUCALYPTUS/usr/lib/eucalyptus
 ENDBASH
+    echo
+
+    echo setting the prompt in .bashrc
+    cat >>$HOME/.bashrc <<-'ENDBASHRC'
+
+    IP=$(echo $(host $(hostname)) | sed 's/.* has address //')
+    TEST=$(grep TESTNAME /root/euca_builder/input.txt | cut -f 2)
+    COMPS=$(grep $IP /root/euca_builder/input.txt | cut -f 6)
+    PS1="\u@$IP {$TEST $COMPS} \W\\$ "
+ENDBASHRC
     echo
 
     echo configuring git repo in $EUCALYPTUS_SRC
